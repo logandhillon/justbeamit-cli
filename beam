@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+
+ROOT_URL = "http://www.justbeamit.com"
+PING_URL = "http://www.justbeamit.com/ping?server_root=1"
+ACTIVE_BACKEND = None
