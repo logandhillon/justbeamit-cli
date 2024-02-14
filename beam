@@ -1,5 +1,154 @@
 #!/usr/bin/env python3
 
+import requests
+import sys
+import os
+import json
+import mimetypes
+from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
+
 ROOT_URL = "http://www.justbeamit.com"
 PING_URL = "http://www.justbeamit.com/ping?server_root=1"
 ACTIVE_BACKEND = None
+
+
+def main():
+    global ACTIVE_BACKEND
+    ACTIVE_BACKEND = fetch_active_backend()
+
+    paths = get_file_paths()
+
+    token = get_token(paths)
+
+    print(ROOT_URL + "/" + token)
+
+    wait(token)
+
+    transfer(paths, token)
+
+
+def fetch_active_backend():
+    response = requests.get(PING_URL)
+
+    if response.status_code == requests.codes.ok:
+        return response.json()["serverRoot"]
+    else:
+        response.raise_for_status()
+
+
+def get_file_paths():
+    """
+    Gets all file paths from command-line args
+    """
+    paths = []
+    for i in range(1, len(sys.argv)):
+        path = sys.argv[i]
+        if (os.path.exists(path) and os.path.isfile(path)):
+            paths.append(path)
+        else:
+            print("File does not exist or is invalid (directories are not supported):")
+            print(path)
+            exit()
+
+    return paths
+
+
+def get_token(paths):
+    url = ACTIVE_BACKEND + "/token"
+
+    files = []
+    for path in paths:
+        name = os.path.basename(path)
+        size = os.path.getsize(path)
+        ext = os.path.splitext(path)[1][1:]
+
+        data = {
+            "fileName": name,
+            "fileSize": size,
+            "fileExtensionType": ext
+        }
+
+        files.append(data)
+
+    data = {
+        "type": "CLI",
+        "files": json.dumps(files)
+    }
+
+    response = requests.post(url, data=data)
+
+    if response.status_code == requests.codes.ok:
+        return response.json()["token"]
+    else:
+        response.raise_for_status()
+
+
+def wait(token):
+    """
+    Waits for connection
+    """
+    url = ACTIVE_BACKEND + "/wait"
+
+    params = {
+        "type": "CLI",
+        "token": token
+    }
+
+    response = requests.get(url, params=params)
+
+    if response.status_code == requests.codes.ok:
+        if response.json()["validToken"] != True:
+            exit("Something went wrong. Please try again.")
+    else:
+        response.raise_for_status()
+
+
+def transfer(paths, token):
+    print("Recipent has connected! Starting transfer")
+    url = ACTIVE_BACKEND + "/upload"
+
+    i = 0
+    for path in paths:
+        print(f"Transferring {path}")
+
+        # TODO: impl. monitor
+        # def monitor_callback(monitor):
+        #     print(monitor.bytes_read)
+
+        encoder = get_encoder(path)
+        # monitor = MultipartEncoderMonitor(encoder, monitor_callback)
+
+        params = {
+            "type": "CLI",
+            "token": token,
+            "index": i
+        }
+
+        # FIXME: this doesnt work and i genuinely do not understand why
+        requests.post(
+            url,
+            data="encoder",
+            params=params,
+            headers={'Content-Type': "text/plain"}
+            #encoder.content_type
+        )
+
+        i += 1
+
+
+def get_encoder(path):
+    return MultipartEncoder({
+        "file": (
+            os.path.basename(path),
+            open(path, "r"),
+            get_mime_type_of(path)
+        )
+    })
+
+
+def get_mime_type_of(file):
+    return mimetypes.guess_type(file)[0] or 'application/octet-stream'
+
+
+if __name__ == "__main__":
+    main()
