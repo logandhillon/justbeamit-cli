@@ -20,7 +20,7 @@ def main():
 
     token = get_token(paths)
 
-    print(ROOT_URL + "/" + token)
+    print(f"Awaiting connection at {ROOT_URL}/{token}")
 
     wait(token)
 
