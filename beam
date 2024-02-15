@@ -5,11 +5,31 @@ import sys
 import os
 import json
 import mimetypes
+
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
+from progressbar import Bar, ETA, FileTransferSpeed, Percentage, ProgressBar, Widget
 
 ROOT_URL = "http://www.justbeamit.com"
 PING_URL = "http://www.justbeamit.com/ping?server_root=1"
 ACTIVE_BACKEND = None
+
+
+class FilesCounter(Widget):
+    def __init__(self, sep=' of '):
+        self.sep = sep
+
+    def update(self, progress_bar):
+        return '(%d%s%d)' % (progress_bar.file_index, self.sep, progress_bar.file_count)
+
+
+WIDGETS = [
+    '  ',
+    Percentage(),
+    ' ',
+    FilesCounter(),
+    ' ',
+    Bar(marker='=', left='[', right=']')
+]
 
 
 def main():
@@ -107,33 +127,46 @@ def transfer(paths, token):
     print("Recipent has connected! Starting transfer")
     url = ACTIVE_BACKEND + "/upload"
 
-    i = 0
-    for path in paths:
-        print(f"Transferring {path}")
+    try:
+        i = 0
+        ProgressBar.file_count = len(paths)
 
-        # TODO: impl. monitor
-        # def monitor_callback(monitor):
-        #     print(monitor.bytes_read)
+        for path in paths:
+            print(f"Transferring {path}")
 
-        encoder = get_encoder(path)
-        # monitor = MultipartEncoderMonitor(encoder, monitor_callback)
+            def monitor_callback(monitor):
+                progress_bar.update(monitor.bytes_read)
 
-        params = {
-            "type": "CLI",
-            "token": token,
-            "index": i
-        }
+            encoder = get_encoder(path)
+            monitor = MultipartEncoderMonitor(encoder, monitor_callback)
 
-        # FIXME: this doesnt work and i genuinely do not understand why
-        requests.post(
-            url,
-            data="encoder",
-            params=params,
-            headers={'Content-Type': "text/plain"}
-            #encoder.content_type
-        )
+            ProgressBar.file_index = i + 1
 
-        i += 1
+            progress_bar = ProgressBar(
+                maxval=encoder._len,
+                widgets=WIDGETS,
+            )
+
+            progress_bar.start()
+
+            params = {
+                "type": "CLI",
+                "token": token,
+                "index": i
+            }
+
+            # FIXME: this doesnt work and i genuinely do not understand why
+            requests.post(
+                url,
+                data=monitor,
+                params=params,
+                headers={'Content-Type': encoder.content_type}
+            )
+
+            progress_bar.finish()
+            i += 1
+    except Exception as e:
+        print("Fatal error occured while transferring files:", e)
 
 
 def get_encoder(path):
